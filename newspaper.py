@@ -10,32 +10,47 @@ GEMINI_KEY = os.environ.get('GEMINI_API_KEY')
 EMAIL_RECEIVER = EMAIL_SENDER 
 
 TOPICS = {
-    "INDIA": "India Finance OR Politics OR Tech OR Sports OR Travel",
-    "WORLD": "Global Economy OR World Politics OR Tech News OR Global Sports"
+    "INDIA": "India Business Politics Tech",
+    "WORLD": "Global Economy World Events"
 }
 
 def ask_gemini(prompt):
+    # Fixed URL and added safety settings to prevent "Unavailable" errors
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
+    }
+    
     try:
         response = requests.post(url, json=payload, timeout=30)
         res_json = response.json()
-        if 'candidates' in res_json:
-            return res_json['candidates'][0]['content']['parts'][0]['text'].replace('**', '').replace('\n', '<br>')
-        return "Analysis currently unavailable."
-    except:
-        return "Editorial desk is busy. Please see headlines below."
+        
+        if 'candidates' in res_json and res_json['candidates'][0].get('content'):
+            text = res_json['candidates'][0]['content']['parts'][0]['text']
+            return text.replace('**', '').replace('\n', '<br>')
+        else:
+            # This returns the actual error from Google to your email
+            error_msg = res_json.get('error', {}).get('message', 'Safety block or Invalid Key')
+            return f"<i>Editorial Note: {error_msg}</i>"
+    except Exception as e:
+        return f"<i>Connection Error: {str(e)}</i>"
 
 def fetch_news(query):
-    # THIS IS THE FIX: We encode the spaces so the URL is valid
     encoded_query = urllib.parse.quote(query)
     url = f"https://news.google.com/rss/search?q={encoded_query}+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
     feed = feedparser.parse(url)
-    return [f"{e.title} (Source: {e.source.title})" for e in feed.entries[:8]]
+    return [e.title for e in feed.entries[:8]]
 
 def create_html():
     today = datetime.now().strftime("%A, %d %B %Y")
-    market_data = ask_gemini("Provide a 3-line brief summary of yesterday's Sensex, Nifty, and Global Market closing. Keep it short.")
+    market_data = ask_gemini("Summarize Nifty 50 and Sensex closing trends in 2 sentences.")
     
     html = f"""
     <div style="font-family: 'Georgia', serif; background-color: #f4f1ea; padding: 20px; color: #1a1a1a;">
@@ -54,7 +69,7 @@ def create_html():
 
     for section, query in TOPICS.items():
         headlines = fetch_news(query)
-        prompt = f"Write a professional 3-paragraph news analysis for the '{section}' section based on these headlines: {headlines}. Tone: Elegant newspaper style. No bullets."
+        prompt = f"Write 3 professional newspaper paragraphs for the {section} section based on these headlines: {headlines}. Paragraph 1: Politics. Paragraph 2: Business. Paragraph 3: Tech/Sports. No bullets."
         analysis = ask_gemini(prompt)
         
         img_url = "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800" if section == "INDIA" else "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800"
@@ -72,20 +87,17 @@ def create_html():
 
 def main():
     if not EMAIL_SENDER or not EMAIL_PASSWORD or not GEMINI_KEY:
-        print("Error: Missing Secrets!")
+        print("MISSING SECRETS!")
         return
         
     msg = MIMEMultipart()
     msg['Subject'] = f"The Daily Gazette: {datetime.now().strftime('%d %b')}"
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER
     msg.attach(MIMEText(create_html(), 'html'))
     
     with smtplib.SMTP('smtp.gmail.com', 587) as server:
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        print("Success! Newspaper sent.")
+        server.sendmail(EMAIL_SENDER, EMAIL_SENDER, msg.as_string())
 
 if __name__ == "__main__":
     main()
