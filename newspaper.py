@@ -16,7 +16,7 @@ TOPICS = {
 
 def ask_gemini(prompt):
     # Fixed URL and added safety settings to prevent "Unavailable" errors
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
