@@ -2,9 +2,10 @@ name: Daily Newspaper
 
 on:
   schedule:
-    # Runs at 02:30 UTC daily, which is 08:00 AM IST
-    - cron: '30 2 * * *'
-  workflow_dispatch: # Allows you to manually trigger it to test
+    # 3:00 UTC is 8:30 AM IST. GitHub can be delayed by 10-30 mins sometimes.
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    # This line is what gives you the manual "Run workflow" button
 
 jobs:
   build:
@@ -12,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
@@ -24,8 +25,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install feedparser requests
 
-      - name: Run Newspaper Script
+      - name: Run newspaper script
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python newspaper.py
