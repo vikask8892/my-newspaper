@@ -1,122 +1,83 @@
-import feedparser
-import smtplib
+import feedparser, smtplib, os, requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-import os
 
-# --- CONFIGURATION ---
-# If running locally, replace these with your actual details.
-# If running on GitHub, these will be pulled from Secrets.
-EMAIL_SENDER = os.environ.get('EMAIL_USER')  
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASS') 
-EMAIL_RECEIVER = "your_email@gmail.com" # Replace with your email if testing locally
+# CONFIG
+EMAIL_SENDER = os.environ.get('EMAIL_USER')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
+GEMINI_KEY = os.environ.get('GEMINI_API_KEY')
+EMAIL_RECEIVER = EMAIL_SENDER 
 
-# News Sections & Google News Queries
-# we use "when:1d" to ensure we only get news from the last 24 hours
-SECTIONS = {
-    "🇮🇳 INDIA UPDATES": {
-        "Finance & Markets": "India Finance OR Stock Market OR Economy when:1d",
-        "Tech & Auto": "India Technology OR Automobile OR Startup when:1d",
-        "Politics": "India Politics OR Government when:1d",
-        "Entertainment & Lifestyle": "India Bollywood OR Entertainment OR Lifestyle when:1d",
-        "Travel": "India Travel OR Tourism when:1d",
-        "Sports": "India Cricket OR Sports when:1d"
-    },
-    "🌍 WORLD UPDATES": {
-        "Finance & Markets": "World Economy OR Global Finance OR Stock Market when:1d",
-        "Tech & Auto": "Global Technology OR Artificial Intelligence OR Automobile when:1d",
-        "Politics": "World Politics OR Geopolitics OR United Nations when:1d",
-        "Entertainment & Lifestyle": "Hollywood OR Global Entertainment OR Lifestyle when:1d",
-        "Travel": "World Travel OR International Tourism when:1d",
-        "Sports": "World Sports OR Football OR Tennis when:1d"
-    }
+# TOPICS
+TOPICS = {
+    "INDIA": "India Finance OR Politics OR Tech OR Sports OR Travel",
+    "WORLD": "Global Economy OR World Politics OR Tech News OR Global Sports"
 }
 
-def fetch_news(query):
-    """Fetches news from Google News RSS for a given query."""
-    encoded_query = query.replace(" ", "%20")
-    # ceid=IN:en ensures we get English news relevant to India context even for world news
-    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-IN&gl=IN&ceid=IN:en"
-    feed = feedparser.parse(url)
-    return feed.entries[:5]  # Get top 5 stories per topic
+def ask_gemini(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    try:
+        response = requests.post(url, json=payload, timeout=30)
+        return response.json()['candidates'][0]['content']['parts'][0]['text'].replace('**', '').replace('\n', '<br>')
+    except: return "Analysis currently updating. Please check the source links below."
 
-def create_html_content():
-    today_date = datetime.now().strftime("%d %B, %Y")
+def fetch_news(query):
+    feed = feedparser.parse(f"https://news.google.com/rss/search?q={query}+when:1d&hl=en-IN&gl=IN&ceid=IN:en")
+    return [f"{e.title} (Source: {e.source.title})" for e in feed.entries[:8]]
+
+def create_html():
+    today = datetime.now().strftime("%A, %d %B %Y")
+    
+    # 1. Get AI Market Snapshot
+    market_data = ask_gemini("Provide a 3-line brief bulleted summary of yesterday's Sensex, Nifty, and Global Market closing trends. Keep it very short.")
     
     html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: auto;">
-        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
-            <h1 style="margin:0;">The Daily Briefing</h1>
-            <p style="margin:5px;">{today_date} | Your Personal Newspaper</p>
-        </div>
+    <div style="font-family: 'Georgia', serif; background-color: #f4f1ea; padding: 20px; color: #1a1a1a;">
+        <div style="max-width: 700px; margin: auto; background: white; padding: 30px; border: 1px solid #ccc;">
+            <div style="text-align: center; border-bottom: 3px solid black; padding-bottom: 10px;">
+                <h1 style="font-size: 45px; margin: 0; font-family: 'Times New Roman', serif;">THE DAILY GAZETTE</h1>
+                <div style="display: flex; justify-content: space-between; border-top: 1px solid black; margin-top: 5px; font-size: 12px; font-weight: bold;">
+                    <span>VOL. I ... NO. 01</span><span>{today}</span><span>PRICE: 0.00</span>
+                </div>
+            </div>
+
+            <div style="background: #eee; padding: 10px; margin-top: 20px; border: 1px solid #ddd;">
+                <h4 style="margin: 0; text-transform: uppercase; font-size: 12px;">Market Intelligence Snapshot</h4>
+                <p style="font-size: 13px; margin: 5px 0;">{market_data}</p>
+            </div>
     """
 
-    for main_section, sub_sections in SECTIONS.items():
-        html += f"""
-        <div style="margin-top: 30px; border-bottom: 2px solid #2c3e50;">
-            <h2 style="color: #c0392b; text-transform: uppercase;">{main_section}</h2>
-        </div>
-        """
+    for section, query in TOPICS.items():
+        headlines = fetch_news(query)
+        # Ask AI to write the article
+        prompt = f"Write a professional 3-paragraph news analysis for the '{section}' section based on these headlines: {headlines}. Paragraph 1: Politics & Economy. Paragraph 2: Tech & Lifestyle. Paragraph 3: Sports & Travel. Tone: Elegant, serious, newspaper-style. No bullet points."
+        analysis = ask_gemini(prompt)
         
-        for topic, query in sub_sections.items():
-            news_items = fetch_news(query)
-            if not news_items:
-                continue
-                
-            html += f"<h3 style='background-color: #ecf0f1; padding: 8px; margin-top: 15px;'>{topic}</h3><ul>"
-            
-            for item in news_items:
-                # Clean up the description/summary provided by Google RSS
-                summary = item.description if 'description' in item else ""
-                # Removes HTML tags from summary if complex, or keep simple
-                
-                html += f"""
-                <li style="margin-bottom: 10px;">
-                    <a href="{item.link}" style="text-decoration: none; color: #2980b9; font-weight: bold;">
-                        {item.title}
-                    </a>
-                    <div style="font-size: 12px; color: #555; margin-top: 2px;">
-                        {item.source.title if 'source' in item else 'News Source'}
-                    </div>
-                </li>
-                """
-            html += "</ul>"
+        # Image placeholder (High quality Unsplash)
+        img_topic = "cityscape" if section == "WORLD" else "india"
+        img_url = f"https://images.unsplash.com/photo-1524492412937-b28074a5d7da?auto=format&fit=crop&w=800&q=80" if section == "INDIA" else "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80"
 
-    html += """
-        <div style="text-align: center; padding: 20px; font-size: 12px; color: #777;">
-            <p>Generated by your Personal AI Newspaper Tool</p>
-        </div>
-    </body>
-    </html>
-    """
+        html += f"""
+            <div style="margin-top: 30px;">
+                <h2 style="border-bottom: 2px solid #333; padding-bottom: 5px;">{section} DESK</h2>
+                <img src="{img_url}" style="width: 100%; border: 1px solid #000; margin-bottom: 15px;">
+                <p style="font-size: 16px; line-height: 1.6; text-align: justify; color: #333;">{analysis}</p>
+            </div>
+        """
+
+    html += "</div></div>"
     return html
 
-def send_email():
-    if not EMAIL_SENDER or not EMAIL_PASSWORD:
-        print("Error: Email credentials not found.")
-        return
-
+def main():
     msg = MIMEMultipart()
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER
-    msg['Subject'] = f"📰 Your Daily Briefing: {datetime.now().strftime('%d %b %Y')}"
-
-    html_content = create_html_content()
-    msg.attach(MIMEText(html_content, 'html'))
-
-    try:
-        # Connect to Gmail SMTP
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+    msg['Subject'] = f"The Daily Gazette: {datetime.now().strftime('%d %b')}"
+    msg.attach(MIMEText(create_html(), 'html'))
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, text)
-        server.quit()
-        print("Email sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+        server.send_message(msg)
 
 if __name__ == "__main__":
-    send_email()
+    main()
