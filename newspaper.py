@@ -8,7 +8,7 @@ EMAIL_SENDER = os.environ.get('EMAIL_USER')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
 GEMINI_KEY = os.environ.get('GEMINI_API_KEY')
 
-# CATEGORIES & GEOGRAPHIES
+# YOUR CUSTOM CATEGORIES
 GEOS = ["INDIA", "WORLD"]
 TOPICS = [
     "POLITICS", "ECONOMICS", "FINANCE & BUSINESS", "MARKETS", 
@@ -16,7 +16,7 @@ TOPICS = [
 ]
 
 def ask_gemini(prompt):
-    # Using 2.5-flash-lite for speed and reliability in 2026
+    # Using the Lite model as per your update for better quota handling
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
@@ -31,54 +31,64 @@ def ask_gemini(prompt):
 def fetch_category_news(geo, topic):
     query = f"{geo} {topic}"
     encoded_query = urllib.parse.quote(query)
+    # Fetching the most recent RSS results
     url = f"https://news.google.com/rss/search?q={encoded_query}+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
     feed = feedparser.parse(url)
-    # Get top 3 headlines per category
+    # We take the top 3-4 most relevant stories per category
     return [e.title for e in feed.entries[:3]]
 
 def create_html():
     today = datetime.now().strftime("%A, %d %B %Y")
     
     html = f"""
-    <div style="font-family: 'Georgia', serif; background-color: #f0f0f0; padding: 10px;">
-        <div style="max-width: 900px; margin: auto; background: white; padding: 40px; border: 2px solid #333;">
+    <div style="font-family: 'Times New Roman', serif; background-color: #f2f2f2; padding: 15px;">
+        <div style="max-width: 850px; margin: auto; background: white; padding: 40px; border: 1px solid #333; box-shadow: 5px 5px 15px rgba(0,0,0,0.1);">
             
-            <div style="text-align: center; border-bottom: 5px solid black; padding-bottom: 10px; margin-bottom: 20px;">
-                <h1 style="font-size: 60px; margin: 0; font-family: 'Times New Roman', serif; text-transform: uppercase;">The Daily Gazette</h1>
-                <p style="font-weight: bold; border-top: 1px solid black; padding-top: 5px;">{today} | Comprehensive Global Coverage</p>
+            <div style="text-align: center; border-bottom: 4px double #000; padding-bottom: 10px; margin-bottom: 30px;">
+                <h1 style="font-size: 50px; margin: 0; text-transform: uppercase; letter-spacing: -1px;">The Daily Gazette</h1>
+                <div style="border-top: 1px solid #000; margin-top: 5px; padding: 5px 0; font-weight: bold; font-size: 14px;">
+                    {today.upper()} &nbsp; | &nbsp; SPECIAL MULTI-TOPIC EDITION
+                </div>
             </div>
     """
 
     for geo in GEOS:
-        html += f"<div style='background: #333; color: white; padding: 10px; font-size: 24px; margin-top: 30px; text-align: center;'>{geo} EDITION</div>"
+        html += f"""
+        <div style='background: #1a1a1a; color: #fff; padding: 8px; font-size: 22px; margin-top: 40px; text-align: center; font-family: sans-serif; letter-spacing: 2px;'>
+            {geo} DESK
+        </div>"""
         
         for topic in TOPICS:
             headlines = fetch_category_news(geo, topic)
             if not headlines: continue
 
-            # Ask Gemini to process the whole category at once to save your quota
-            prompt = f"""Act as a senior editor. For the following {topic} headlines in {geo}, provide a structured response.
-            For EACH headline, write:
-            1. The original Headline in bold.
-            2. A 3-sentence professional analysis/summary.
+            # Ask Gemini to write individual articles for each headline
+            prompt = f"""You are a professional newspaper editor for the {geo} {topic} section. 
+            I will give you a list of headlines. For EACH headline, you MUST provide:
+            1. The exact Headline in bold.
+            2. A 3 to 4 sentence summarized analysis article that explains the 'why' and the impact.
             
-            Headlines: {headlines}
-            Format: Headline followed by analysis. Separate each story clearly."""
+            Headlines to process: {headlines}
+            
+            Format strictly as:
+            **HEADLINE**
+            ARTICLE TEXT
+            (Repeat for each)"""
 
             analysis_block = ask_gemini(prompt).replace('\n', '<br>')
 
             html += f"""
-            <div style="margin-top: 25px; border-left: 4px solid #cc0000; padding-left: 15px;">
-                <h2 style="color: #cc0000; font-size: 18px; margin: 0; text-transform: uppercase;">{topic}</h2>
-                <div style="font-size: 16px; line-height: 1.6; color: #111; margin-top: 10px;">
+            <div style="margin-top: 30px; border-bottom: 1px solid #ddd; padding-bottom: 20px;">
+                <h2 style="color: #8B0000; font-size: 20px; border-bottom: 2px solid #8B0000; display: inline-block; margin-bottom: 15px;">{topic}</h2>
+                <div style="font-size: 16px; line-height: 1.6; color: #222;">
                     {analysis_block}
                 </div>
             </div>
             """
 
     html += """
-            <div style="text-align: center; margin-top: 50px; border-top: 2px solid black; padding-top: 20px; font-size: 12px; color: #666;">
-                &copy; 2026 The Daily Gazette | Automated AI Reporting
+            <div style="text-align: center; margin-top: 50px; border-top: 1px solid #000; padding-top: 20px; font-size: 12px; font-style: italic; color: #555;">
+                This newspaper is generated using Google Gemini 2.5-Flash-Lite & Google News RSS.
             </div>
         </div>
     </div>
@@ -86,22 +96,24 @@ def create_html():
     return html
 
 def main():
-    if not EMAIL_SENDER or not GEMINI_KEY:
-        print("Configuration missing!")
+    if not EMAIL_SENDER or not EMAIL_PASSWORD or not GEMINI_KEY:
+        print("CRITICAL ERROR: Missing environment variables (Secrets).")
         return
         
     msg = MIMEMultipart()
     msg['Subject'] = f"The Daily Gazette: {datetime.now().strftime('%d %b %Y')}"
+    msg['From'] = f"The Daily Gazette <{EMAIL_SENDER}>"
+    msg['To'] = EMAIL_SENDER
     msg.attach(MIMEText(create_html(), 'html'))
     
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_SENDER, EMAIL_SENDER, msg.as_string())
-        print("Success: Your full-edition newspaper has been sent.")
+            server.send_message(msg)
+        print("Newspaper successfully dispatched to your inbox.")
     except Exception as e:
-        print(f"Failed to send: {e}")
+        print(f"SMTP Error: {e}")
 
 if __name__ == "__main__":
     main()
