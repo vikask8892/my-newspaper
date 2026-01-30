@@ -7,97 +7,101 @@ from datetime import datetime
 EMAIL_SENDER = os.environ.get('EMAIL_USER')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
 GEMINI_KEY = os.environ.get('GEMINI_API_KEY')
-EMAIL_RECEIVER = EMAIL_SENDER 
 
-TOPICS = {
-    "INDIA": "India Business Politics Tech",
-    "WORLD": "Global Economy World Events"
-}
+# CATEGORIES & GEOGRAPHIES
+GEOS = ["INDIA", "WORLD"]
+TOPICS = [
+    "POLITICS", "ECONOMICS", "FINANCE & BUSINESS", "MARKETS", 
+    "TECH & AUTOMOBILE", "ENTERTAINMENT", "LIFESTYLE", "TRAVEL", "SPORTS"
+]
 
 def ask_gemini(prompt):
-    # Fixed URL and added safety settings to prevent "Unavailable" errors
+    # Using 2.5-flash-lite for speed and reliability in 2026
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}"
-    
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-        ]
-    }
-    
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=60)
         res_json = response.json()
-        
-        if 'candidates' in res_json and res_json['candidates'][0].get('content'):
-            text = res_json['candidates'][0]['content']['parts'][0]['text']
-            return text.replace('**', '').replace('\n', '<br>')
-        else:
-            # This returns the actual error from Google to your email
-            error_msg = res_json.get('error', {}).get('message', 'Safety block or Invalid Key')
-            return f"<i>Editorial Note: {error_msg}</i>"
-    except Exception as e:
-        return f"<i>Connection Error: {str(e)}</i>"
+        if 'candidates' in res_json:
+            return res_json['candidates'][0]['content']['parts'][0]['text']
+        return "Editorial details are being updated."
+    except:
+        return "Error connecting to AI newsroom."
 
-def fetch_news(query):
+def fetch_category_news(geo, topic):
+    query = f"{geo} {topic}"
     encoded_query = urllib.parse.quote(query)
     url = f"https://news.google.com/rss/search?q={encoded_query}+when:1d&hl=en-IN&gl=IN&ceid=IN:en"
     feed = feedparser.parse(url)
-    return [e.title for e in feed.entries[:8]]
+    # Get top 3 headlines per category
+    return [e.title for e in feed.entries[:3]]
 
 def create_html():
     today = datetime.now().strftime("%A, %d %B %Y")
-    market_data = ask_gemini("Summarize Nifty 50 and Sensex closing trends in 2 sentences.")
     
     html = f"""
-    <div style="font-family: 'Georgia', serif; background-color: #f4f1ea; padding: 20px; color: #1a1a1a;">
-        <div style="max-width: 700px; margin: auto; background: white; padding: 30px; border: 1px solid #ccc;">
-            <div style="text-align: center; border-bottom: 3px solid black; padding-bottom: 10px;">
-                <h1 style="font-size: 45px; margin: 0; font-family: 'Times New Roman', serif;">THE DAILY GAZETTE</h1>
-                <div style="display: flex; justify-content: space-between; border-top: 1px solid black; margin-top: 5px; font-size: 12px; font-weight: bold;">
-                    <span>VOL. I ... NO. 01</span><span>{today}</span><span>PRICE: FREE</span>
-                </div>
-            </div>
-            <div style="background: #eee; padding: 10px; margin-top: 20px; border: 1px solid #ddd;">
-                <h4 style="margin: 0; text-transform: uppercase; font-size: 11px;">Market Snapshot</h4>
-                <p style="font-size: 13px; margin: 5px 0;">{market_data}</p>
+    <div style="font-family: 'Georgia', serif; background-color: #f0f0f0; padding: 10px;">
+        <div style="max-width: 900px; margin: auto; background: white; padding: 40px; border: 2px solid #333;">
+            
+            <div style="text-align: center; border-bottom: 5px solid black; padding-bottom: 10px; margin-bottom: 20px;">
+                <h1 style="font-size: 60px; margin: 0; font-family: 'Times New Roman', serif; text-transform: uppercase;">The Daily Gazette</h1>
+                <p style="font-weight: bold; border-top: 1px solid black; padding-top: 5px;">{today} | Comprehensive Global Coverage</p>
             </div>
     """
 
-    for section, query in TOPICS.items():
-        headlines = fetch_news(query)
-        prompt = f"Write 3 professional newspaper paragraphs for the {section} section based on these headlines: {headlines}. Paragraph 1: Politics. Paragraph 2: Business. Paragraph 3: Tech/Sports. No bullets."
-        analysis = ask_gemini(prompt)
+    for geo in GEOS:
+        html += f"<div style='background: #333; color: white; padding: 10px; font-size: 24px; margin-top: 30px; text-align: center;'>{geo} EDITION</div>"
         
-        img_url = "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=800" if section == "INDIA" else "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800"
+        for topic in TOPICS:
+            headlines = fetch_category_news(geo, topic)
+            if not headlines: continue
 
-        html += f"""
-            <div style="margin-top: 30px;">
-                <h2 style="border-bottom: 2px solid #333; padding-bottom: 5px;">{section} DESK</h2>
-                <img src="{img_url}" style="width: 100%; border: 1px solid #000; margin-bottom: 15px;">
-                <p style="font-size: 15px; line-height: 1.6; text-align: justify;">{analysis}</p>
+            # Ask Gemini to process the whole category at once to save your quota
+            prompt = f"""Act as a senior editor. For the following {topic} headlines in {geo}, provide a structured response.
+            For EACH headline, write:
+            1. The original Headline in bold.
+            2. A 3-sentence professional analysis/summary.
+            
+            Headlines: {headlines}
+            Format: Headline followed by analysis. Separate each story clearly."""
+
+            analysis_block = ask_gemini(prompt).replace('\n', '<br>')
+
+            html += f"""
+            <div style="margin-top: 25px; border-left: 4px solid #cc0000; padding-left: 15px;">
+                <h2 style="color: #cc0000; font-size: 18px; margin: 0; text-transform: uppercase;">{topic}</h2>
+                <div style="font-size: 16px; line-height: 1.6; color: #111; margin-top: 10px;">
+                    {analysis_block}
+                </div>
             </div>
-        """
+            """
 
-    html += "</div></div>"
+    html += """
+            <div style="text-align: center; margin-top: 50px; border-top: 2px solid black; padding-top: 20px; font-size: 12px; color: #666;">
+                &copy; 2026 The Daily Gazette | Automated AI Reporting
+            </div>
+        </div>
+    </div>
+    """
     return html
 
 def main():
-    if not EMAIL_SENDER or not EMAIL_PASSWORD or not GEMINI_KEY:
-        print("MISSING SECRETS!")
+    if not EMAIL_SENDER or not GEMINI_KEY:
+        print("Configuration missing!")
         return
         
     msg = MIMEMultipart()
-    msg['Subject'] = f"The Daily Gazette: {datetime.now().strftime('%d %b')}"
+    msg['Subject'] = f"The Daily Gazette: {datetime.now().strftime('%d %b %Y')}"
     msg.attach(MIMEText(create_html(), 'html'))
     
-    with smtplib.SMTP('smtp.gmail.com', 587) as server:
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_SENDER, EMAIL_SENDER, msg.as_string())
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_SENDER, msg.as_string())
+        print("Success: Your full-edition newspaper has been sent.")
+    except Exception as e:
+        print(f"Failed to send: {e}")
 
 if __name__ == "__main__":
     main()
